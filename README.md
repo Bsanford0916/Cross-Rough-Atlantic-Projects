@@ -12,3 +12,5 @@ Cross-Rough-Atlantic-Projects are all licensed under CC-BY-SA-NC https://creativ
 These projects have come to fruition due to the donation of code from a mix of Project FDL and Airzone's free code. 
 
 You have permission to print as many as you like for yourself, and remix the files in any way you like, but you CANNOT sell files or prints without permission or coming to an agreement.
+
+These files are very much in beta - things will be out of date or even flat out wrong.  Feel free to add corrections.
