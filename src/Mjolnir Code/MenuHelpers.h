@@ -249,6 +249,65 @@ class ActionMenuItem : public MenuItem        //action menu item Buttons
     }    
   }
 };
+// --------------------------------------------------------------------------------
+class BatteryMenuItem : public MenuItem     //Battery type, Item 13
+{
+  private:
+    
+    
+  public:
+
+  void Increase()
+  {
+    CurrentValue ++;
+    if( CurrentValue > 4 )
+      CurrentValue = 4;
+  }
+  void Decrease()
+  {
+    CurrentValue --;
+    if( CurrentValue < 3 )
+      CurrentValue = 3;
+  }
+  
+   void PrepareOutput()
+  {
+    if( CurrentValue == 3 )
+    {
+      strcpy( Output, "  3S" );
+    }
+    if ( CurrentValue == 4 )
+    {
+      strcpy( Output, "  4S" ); 
+    }
+  }
+};
+
+// --------------------------------------------------------------------------------
+class BatOffsetMenuItem : public MenuItem                //Battery Offset/Calibration 
+{
+  private:
+    
+    
+  public:
+
+  void Increase()
+  {
+    CurrentValue += 1;
+    if( CurrentValue > 20 )
+      CurrentValue = 20;
+  }
+  void Decrease()
+  {
+    CurrentValue -= 1;
+    if( CurrentValue < -20 )
+      CurrentValue = -20;
+  }
+  void PrepareOutput()
+  {
+    sprintf( Output, "%4d", CurrentValue );
+  }
+};
 
 // ---------------------------------------------------------------------
 class ExitMenuItem : public MenuItem

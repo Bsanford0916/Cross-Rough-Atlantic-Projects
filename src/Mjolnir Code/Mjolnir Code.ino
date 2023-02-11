@@ -1,4 +1,4 @@
-/* 29-1-23 v19
+/* 11-2-23 v20
  * For the Nerf Comunity, open progect...
  * 
  * Brushless | Solenoid Pusher | Singal Trigger | I2C OLED 128 x 64 display | Rotary Encoder with PB_Switch | Serial DeBUG 57600Buad
@@ -34,9 +34,9 @@
  * INSTRUCTIONS
  * Copy the three files:
  * 
- *  Thors_Hammer_Menus_v19.ino
- *  Logo.h
- *  MenuHelpers.h
+ *    Thors_Hammer_Menus_v19.ino
+ *    Logo.h
+ *    MenuHelpers.h
  *  
  * Into one folder, and initiate the Adrouno IDE by clicking Thors_Hammer_menus_v16.ino
  * Under Tools set the Board Type:Arduino Nano, Processor:ATmega328P (old Bootloader), and Com port
@@ -82,6 +82,8 @@
  * SP Hi          // Solenoid Pulse High Time 0 - 1000 Default: 35 
  * SP Low         // Solenoid Pulse Low Time 0 - 1000 Default: 45
  * SP Ret         // Solenoid Pulse Retract Time 0- 1000 Default: 45
+ * Bat Type       // 3S or 4S default 3S
+ * Bat Off        // Battery Offset for calibration, increments of 0.1 displayed as interger
  * EXIT           // Exit config back to default run screen
  * 
  * To load factory default settings in EEPROM, Hold trigger ON during power up or reset, let go when screen says too.
@@ -125,6 +127,9 @@
  *
  *    Once you have both the PulseOnTimeHigh and PulseOnLow value, key them in and test the solenoid over a range of battery values. 
  *    Reducing the timing will make it faster, at the expense of reliability.
+ *    
+ *    Thous values: SP HI = 47, SP Low = 47, SP Ret = 27
+ *    
  *
  * ----------------------------------------------------------------------------------------
  * Suggested ESC setting, the ones to change.
@@ -187,6 +192,7 @@
  * v17 More Tidy Ups and documentation. Flip Screen, cos Thor got it up the wrong way :-), but easy fix and good for later reffferance
  * v18 Configuration menu tidy up and addition of solenoide tuning variables in config menu
  * v19 Tidy up code and comments
+ * v20 Battery tip select and Battery Offset Calibration added to config menu
  * 
  *---------------------------------------------------------------------------------------------- 
  */
@@ -198,7 +204,7 @@
 #include "MenuHelpers.h"
 #include "Logo.h"
 
-#define VERSION 19
+#define VERSION 20
 
 //-------------------------------------------------------------------------------------------
 // BIOS Deffinitions 
@@ -329,13 +335,10 @@ byte ConsoleRotaryButtonAction = BTN_ACTION_NONE;     //encoder rotary button
 
 // Pusher Controls - solenoid
 volatile bool RequestStop = false;             //
-// int PulseOnTime = 35;                          // 35    50
-// int PulseOnTimeHigh = 35;                      // 45    90
-// int PulseOnTimeLow = 45;                       // 25    45
-int PulseOnTime = 70;                          // 35    50
-int PulseOnTimeHigh = 70;                      // 45    90
-int PulseOnTimeLow = 90;                       // 25    45
-int PulseRetractTime = 90;                     //
+int PulseOnTime = 35;                          // 35    50
+int PulseOnTimeHigh = 35;                      // 45    90
+int PulseOnTimeLow = 45;                       // 25    45
+int PulseRetractTime = 45;                     //
 #define SOLENOID_CYCLE_IDLE 0
 #define SOLENOID_CYCLE_PULSE 1
 #define SOLENOID_CYCLE_RETRACT 2
@@ -374,7 +377,6 @@ int TimeBetweenShots = 0;                   // Calculated to lower ROF
 
 
 // Misc Controls
-int adj = 2;
 byte MagSize = 18;
 int DartsInMag = 0;
 bool EnteringConfig = false;
@@ -409,22 +411,28 @@ byte ButtonActions[7] = {BTN_SINGLE, BTN_BURST, BTN_AUTO, BTN_PROFILE_A, BTN_NOT
 byte SystemMode = SYSTEM_MODE_NORMAL;
 
 
-// Battery Controls - this needs to be adjusted for optomal perforance. Adjust for 4S
-#define BATTERY_3S_MIN 9.6
-#define BATTERY_3S_MAX 13.0
-#define BATTERY_CALFACTOR 0.0                     // Adjustment for calibration.
+// Battery Controls - this needs to be adjusted for optomal perforance
+#define BATTERY_3S 3
+#define BATTERY_4S 4
+#define BATTERY_3S_MIN 11.1                       // 3S_Min volts = 9.6, thnk this should be 11.1
+#define BATTERY_3S_MAX 13.0                       // 3S_Max volts = 13.2
+#define BATTERY_4S_MIN 13.2                       // 4S_Min volts = 13.2 and this 14.8
+#define BATTERY_4S_MAX 16.8                       // 4S_Max volts = 16.8
+#define BATTERY_CALFACTOR 0.0                     // Default Battery Offset Adjustment for calibration
+byte BatteyType = BATTERY_3S;                     // Default is 3S battery. this Variable gets changed via the config menu 
+int BatteryOffset = BATTERY_CALFACTOR;          // asign to a floating point veriable so can be adjusted in config menu
+
 float BatteryCurrentVoltage = 99.0;
 float BatteryMinVoltage = BATTERY_3S_MIN;
 float BatteryMaxVoltage = BATTERY_3S_MAX;
+int SolenoidLowVoltage = (int)(BATTERY_3S_MIN*10.0);
+int SolenoidHighVoltage = (int)(BATTERY_3S_MAX*10.0);
 bool BatteryFlat = false;
 volatile bool ADCRead = false;
 volatile unsigned long ADCValue = 0;
-int SolenoidLowVoltage = (int)(BATTERY_3S_MIN*10.0);
-int SolenoidHighVoltage = (int)(BATTERY_3S_MAX*10.0);
-
 
 // Configuration menu stuff
-#define MENU_ITEMS 14
+#define MENU_ITEMS 16             // was 14
 MenuItem* MenuItems[ MENU_ITEMS ];
 
 
@@ -432,56 +440,62 @@ MenuItem* MenuItems[ MENU_ITEMS ];
 byte CurrentProfile = 0;
 struct ProfileDef
 {
-  byte MotorSpeedFull = 50;     // Power: 50%
-  byte ROFAdjustmentA = 0;      // A ROF Max    Full Auto rate
-  byte ROFAdjustmentB = 0;      // B ROF Max    Burst rate
-  byte BurstSize = 2;           // Burst 2
-  byte MagSize = 18;            // Mag 18
-  int AccelerateTime = 0;       // Ramp Up 0 = fastest start up
-  int DecelerateTime = 4000;    // Ramp Down
-  int MotorStartDwellTime = 0;  // Dwell Up keeps it reving
-  int MotorStopDwellTime = 200; // Dwell Down
-  int PulseOnTimeHigh = 35;     // 
-  int PulseOnTimeLow = 45;      //
-  int PulseRetractTime = 45;    //
-                                // ----------- NOT USED Referance code ---------------------------------------------
-  byte BtnLS = BTN_NOTHING;     //Lft S: Single  (Console Button Left, Short press, single shot mode) BTN_SINGLE
-  byte BtnLL = BTN_NOTHING;     //Lft L:Pro A    (Console Button Left, Long press, Select profile A) BTN_PROFILE_A
-  byte BtnCS = BTN_NOTHING;     //Cen S: Burst   (Console Button Center, Short press, Burst Mode) BTN_BURST
-  byte BtnCL = BTN_NOTHING;     //Cen L: Null    (Console Button Center, Long press, Null)
-  byte BtnRS = BTN_NOTHING;     //Rgt S: Auto    (Console Button Right, Short press, Full Auto Mode ) BTN_AUTO
-  byte BtnRL = BTN_NOTHING;     //Rgt L:Pro B    (Console Button Right, Long pree, Select profile B) BTN_PROFILE_B
-  byte BtnRot = BTN_NOTHING;    //Rot L:Safe    (Rotary Encoder Button, Long press, Safe Mode) BTN_SAFE
-                                // ---------------------------------------------------------------------------------
-  int SolenoidHighVoltage = (int)(BATTERY_3S_MAX*10.0);     // if we need to minipulate these for performance we need them here
-  int SolenoidLowVoltage = (int)(BATTERY_3S_MIN*10.0);      //
+  byte MotorSpeedFull = 50;                 // Power: 50%
+  byte ROFAdjustmentA = 0;                  // A ROF Max    Full Auto rate
+  byte ROFAdjustmentB = 0;                  // B ROF Max    Burst rate
+  byte BurstSize = 2;                       // Burst 2
+  byte MagSize = 18;                        // Mag 18
+  int AccelerateTime = 0;                   // Ramp Up 0 = fastest start up
+  int DecelerateTime = 4000;                // Ramp Down
+  int MotorStartDwellTime = 0;              // Dwell Up keeps it reving
+  int MotorStopDwellTime = 200;             // Dwell Down
+  int PulseOnTimeHigh = 35;                 // SP High (Solenoid)
+  int PulseOnTimeLow = 45;                  // SP Low
+  int PulseRetractTime = 45;                // SP Ret
+                                            // ----------- NOT USED Referance code ---------------------------------------------
+  byte BtnLS = BTN_NOTHING;                 // Lft S: Single  (Console Button Left, Short press, single shot mode) BTN_SINGLE
+  byte BtnLL = BTN_NOTHING;                 // Lft L:Pro A    (Console Button Left, Long press, Select profile A) BTN_PROFILE_A
+  byte BtnCS = BTN_NOTHING;                 // Cen S: Burst   (Console Button Center, Short press, Burst Mode) BTN_BURST
+  byte BtnCL = BTN_NOTHING;                 // Cen L: Null    (Console Button Center, Long press, Null)
+  byte BtnRS = BTN_NOTHING;                 // Rgt S: Auto    (Console Button Right, Short press, Full Auto Mode ) BTN_AUTO
+  byte BtnRL = BTN_NOTHING;                 // Rgt L:Pro B    (Console Button Right, Long pree, Select profile B) BTN_PROFILE_B
+  byte BtnRot = BTN_NOTHING;                // Rot L:Safe    (Rotary Encoder Button, Long press, Safe Mode) BTN_SAFE
+                                            // ---------------------------------------------------------------------------------
+  byte BatteyType = BATTERY_3S;             // Default is 3S battery. this Variable gets changed via the config menu 
+  int BatteryOffset = BATTERY_CALFACTOR;    // Battery Voltes offset/calibration, adjusted in config menu
+  
+  
+  //int SolenoidHighVoltage = (int)(BATTERY_3S_MAX*10.0);     // these get changed when the bat type is changed, in config menu
+  //int SolenoidLowVoltage = (int)(BATTERY_3S_MIN*10.0);      //
 };
 ProfileDef Profiles[2];
 
 
 // EEPROM addresses -- critical alignment here
-#define ADDR_MSF 0
-#define ADDR_ROFA 1
-#define ADDR_ROFB 2
-#define ADDR_BURST 3
-#define ADDR_MAGSIZE 4
-#define ADDR_ACCEL 5            // 2 byte
-#define ADDR_DECEL 7            // 2 byte
-#define ADDR_STARTD 9           // 2 byte
-#define ADDR_STOPD 11           // 2 byte
-#define ADDR_PULSE_HIGH 13      // 2 byte
-#define ADDR_PULSE_LOW 15       // 2 byte
-#define ADDR_PULSE_RETRACT 17   // 2 byte
-#define ADDR_BTN_LS 18          // 18 not used, referance code
-#define ADDR_BTN_LL 19          // 19 not used, referance code
-#define ADDR_BTN_CS 20          // 20 not used, referance code
-#define ADDR_BTN_CL 21          // 21 not used, referance code
-#define ADDR_BTN_RS 22          // 22 not used, referance code
-#define ADDR_BTN_RL 23          // 23 not used, referance code
-#define ADDR_BTN_ROT 24         // 24 not used, referance code
-#define ADDR_PROA_BASE 0        // 25
-#define ADDR_PROB_BASE 26       // 26
-#define ADDR_SECTORL 25         // 27
+#define ADDR_MSF 0              // 0 1 byte  
+#define ADDR_ROFA 1             // 1
+#define ADDR_ROFB 2             // 2
+#define ADDR_BURST 3            // 3
+#define ADDR_MAGSIZE 4          // 4
+#define ADDR_ACCEL 5            // 5/6      2 byte
+#define ADDR_DECEL 7            // 7/8      2 byte
+#define ADDR_STARTD 9           // 9/10     2 byte
+#define ADDR_STOPD 11           // 11/12    2 byte
+#define ADDR_PULSE_HIGH 13      // 13/14    2 byte
+#define ADDR_PULSE_LOW 15       // 15/16    2 byte
+#define ADDR_PULSE_RETRACT 17   // 17/18    2 byte
+#define ADDR_BTN_LS 19          // 19       not used, referance code
+#define ADDR_BTN_LL 20          // 20       not used, referance code
+#define ADDR_BTN_CS 21          // 21       not used, referance code
+#define ADDR_BTN_CL 22          // 22       not used, referance code
+#define ADDR_BTN_RS 23          // 23       not used, referance code
+#define ADDR_BTN_RL 24          // 24       not used, referance code
+#define ADDR_BTN_ROT 25         // 25       not used, referance code
+#define ADDR_BAT_TYPE 26        // 26
+#define ADDR_BAT_OFFSET 27      // 27/28/29    2 byte
+#define ADDR_PROA_BASE 0        // 30
+#define ADDR_PROB_BASE 31       // 31
+#define ADDR_SECTORL 29         // 30
 
 //============================================= SETUP ======================================= 
 void setup() {
@@ -503,15 +517,10 @@ void setup() {
   Oled.clear();
   Oled.displayRemap( false );                           // set true or false to flip screen
   Oled.setFont(ZevvPeep8x16);
-  Oled.setCursor(adj+2,0);
-  Oled.print( F("ABCDEFGHIJKLMNOP"));
-  delay(2000);
-  Oled.setCursor(adj+40, 2);
+  Oled.setCursor(40, 2);
   Oled.print( F("BOO") );
-  delay(1000);
-  Oled.setCursor(adj+35, 4);
+  Oled.setCursor(35, 4);
   Oled.print( F("Booting") );
-  delay(1000);
 
   // Display logo                                       // The pic lives in Logo.h. 
   Oled.clear();
@@ -637,11 +646,11 @@ void setup() {
   Serial.println( F("Waiting for trigger safety") );
   Oled.clear();
   Oled.setFont(ZevvPeep8x16);
-  Oled.setCursor(adj+40, 2);
+  Oled.setCursor(40, 2);
   Oled.print( F("Finger") );
-  Oled.setCursor(adj+35, 4);
+  Oled.setCursor(35, 4);
   Oled.print( F("Off The") );      
-  Oled.setCursor(adj+35, 6);
+  Oled.setCursor(35, 6);
   Oled.print( F("Trigger!") );
   while( (TriggerButtonState == BTN_LOW) || (TriggerButtonState == BTN_FELL) )
   {
@@ -650,13 +659,13 @@ void setup() {
   }
   delay(10);
 
-  // ---------------------------- Build thge menu system ----------------------------------
+  // ---------------------------- Build tge menu system ----------------------------------
   BuildMenu();
   
   // We are done.
   Oled.clear();
   Oled.setFont(ZevvPeep8x16);
-  Oled.setCursor(adj+40, 2);
+  Oled.setCursor(40, 2);
   Oled.print( F("Booted") );
   
   Serial.println( F("Booted") );  
@@ -698,7 +707,9 @@ void LoadEEPROM()
   if( (Profiles[0].BtnRS < 0) || (Profiles[0].BtnRS > 6) ) CorruptData = true;
   if( (Profiles[0].BtnRL < 0) || (Profiles[0].BtnRL > 6) ) CorruptData = true;
   if( (Profiles[0].BtnRot < 0) || (Profiles[0].BtnRot > 6) ) CorruptData = true;
-
+  if( (Profiles[0].BatteyType < BATTERY_3S) || (Profiles[0].BatteyType > BATTERY_4S) ) CorruptData = true;
+  if( (Profiles[0].BatteryOffset < -20) || (Profiles[0].BatteryOffset > 20) ) CorruptData = true;  
+  
   if( (Profiles[1].MotorSpeedFull < 30) || (Profiles[1].MotorSpeedFull > 100) ) CorruptData = true;
   if( (Profiles[1].ROFAdjustmentA < 0) || (Profiles[1].ROFAdjustmentA > 150) ) CorruptData = true;
   if( (Profiles[1].ROFAdjustmentB < 0) || (Profiles[1].ROFAdjustmentB > 150) ) CorruptData = true;
@@ -717,7 +728,9 @@ void LoadEEPROM()
   if( (Profiles[1].BtnCL < 0) || (Profiles[1].BtnCL > 6) ) CorruptData = true;
   if( (Profiles[1].BtnRS < 0) || (Profiles[1].BtnRS > 6) ) CorruptData = true;
   if( (Profiles[1].BtnRL < 0) || (Profiles[1].BtnRL > 6) ) CorruptData = true;
-  if( (Profiles[1].BtnRot < 0) || (Profiles[1].BtnRot > 6) ) CorruptData = true;  
+  if( (Profiles[1].BtnRot < 0) || (Profiles[1].BtnRot > 6) ) CorruptData = true;   
+  if( (Profiles[1].BatteyType < BATTERY_3S) || (Profiles[1].BatteyType > BATTERY_4S) ) CorruptData = true;
+  if( (Profiles[1].BatteryOffset < -20) || (Profiles[1].BatteryOffset > 20) ) CorruptData = true;  
 
   // Data is not valid, or the trigger was held on power-on for a reset (load default values)
   if( (TriggerButtonState == BTN_LOW) || CorruptData )
@@ -755,7 +768,7 @@ void LoadEEPROM()
 }
 
 
-// ================================ Builds the menu structure using my MenuHelpers, a tricky bit of code this is ===========================
+// ================================ Builds the config menu structure using my MenuHelpers, a tricky bit of code this is ===========================
 void BuildMenu()
 {
   MenuItems[0] = new ExitMenuItem();
@@ -796,6 +809,12 @@ void BuildMenu()
 
   MenuItems[12] = new  SolenoidTimingMenuItem ();
   strcpy( MenuItems[12]->Title, "SP Ret:" );
+  
+  MenuItems[13] = new  BatteryMenuItem ();
+  strcpy( MenuItems[13]->Title, "BatType" );
+
+  MenuItems[14] = new  BatOffsetMenuItem ();
+  strcpy( MenuItems[14]->Title, "Bat Off" );
 
   // ----- Referance code Does buttons -------------------
   //MenuItems[13] = new ActionMenuItem();
@@ -810,8 +829,8 @@ void BuildMenu()
   //MenuItems[16] = new ActionMenuItem();
   //strcpy( MenuItems[16]->Title, "ROT L:" );
   
-  MenuItems[13] = new ExitMenuItem();
-  strcpy( MenuItems[13]->Title, "EXIT" );
+  MenuItems[15] = new ExitMenuItem();
+  strcpy( MenuItems[15]->Title, "EXIT" );
 }
 
 
@@ -1993,7 +2012,7 @@ void Display_MagOut( bool ClearScreen )
   if( ClearScreen )
   {  
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(adj+0, 2);
+    Oled.setCursor(0, 2);
     Oled.print( F("################\n") );
     Oled.print( F("# MAG DROPPED! #\n") );
     Oled.print( F("################") );      
@@ -2014,7 +2033,7 @@ void Display_Normal( bool ClearScreen )
   if( ClearScreen || (TargetFireMode != LastTargetFireMode) || (BurstSize != LastBurstSize) )
   {  
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(adj+0, 2);
+    Oled.setCursor(0, 2);
     if( TargetFireMode == FIRE_MODE_SINGLE )
     {
       Oled.print( F("Single    ") );
@@ -2051,7 +2070,7 @@ void Display_Normal( bool ClearScreen )
   if( ClearScreen || (DisplayDPS != LastDisplayDPS) )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(adj+0, 4);
+    Oled.setCursor(0, 4);
     Oled.print( F("ROF: ") );
     if( DisplayDPS == 0 )
       Oled.print( F("MAX") );
@@ -2065,7 +2084,7 @@ void Display_Normal( bool ClearScreen )
   if( ClearScreen || (MotorSpeedFull != LastMotorSpeedFull) )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(adj+0, 6);
+    Oled.setCursor(0, 6);
     Oled.print( F("Pwr:") );
     sprintf( Buffer, "%3d", MotorSpeedFull );
     Oled.print( Buffer );
@@ -2079,7 +2098,7 @@ void Display_Normal( bool ClearScreen )
     {
       LastRefresh = millis();
       Oled.setFont(ZevvPeep8x16);
-      Oled.setCursor(adj+90, 3);
+      Oled.setCursor(90, 3);
       Oled.set2X();
       sprintf( Buffer, "%2d", DartsInMag );
       Oled.print( Buffer );
@@ -2111,7 +2130,7 @@ void Display_ScreenHeader( bool ClearScreen )
   if( ClearScreen || ( (int)(LastBatteryVoltage*10) != (int)(BatteryCurrentVoltage*10) ) )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(adj+0, 0);
+    Oled.setCursor(0, 0);
     sprintf( Buffer, "%3d", (int)(BatteryCurrentVoltage * 10) );
     Buffer[4] = 0;
     Buffer[3] = Buffer[2];
@@ -2122,7 +2141,7 @@ void Display_ScreenHeader( bool ClearScreen )
 
   if( ClearScreen || (LastCurrentProfile != CurrentProfile ) )
   {
-    Oled.setCursor( adj+70, 0 );
+    Oled.setCursor( 70, 0 );
     Oled.setFont(ZevvPeep8x16);
     Oled.print( "Pro: " );
     Oled.print( (char)('A' + CurrentProfile) );      
@@ -2139,7 +2158,7 @@ void Display_LowBatt( bool ClearScreen )
   if( ClearScreen )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(adj+0, 2);
+    Oled.setCursor(0, 2);
     Oled.print( F("################\n") );
     Oled.print( F("# LOW BATTERY! #\n") );
     Oled.print( F("################") ); 
@@ -2152,7 +2171,7 @@ void Display_Jam( bool ClearScreen )
   if( ClearScreen )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(adj+0, 2);
+    Oled.setCursor(0, 2);
     Oled.print( F("################\n") );
     Oled.print( F("# JAM DETECTED #\n") );
     Oled.print( F("################") ); 
@@ -2203,6 +2222,8 @@ void ProcessBatteryMonitor()
   #define NUM_SAMPLES 6
   static byte CollectedSamples = 0;
   static float SampleAverage = 0;
+  int BatteryOffsetfloat = 0;
+  
   if( CollectedSamples < NUM_SAMPLES )
   {
     CollectedSamples ++;
@@ -2210,8 +2231,9 @@ void ProcessBatteryMonitor()
   }
   else
   {
-    BatteryCurrentVoltage = (((float)SampleAverage / (float)CollectedSamples * 5.0)  / 1024.0 * (float)((47.0 + 10.0) / 10.0)) + BATTERY_CALFACTOR;  // Voltage dividor - 47k and 10k
-    if( BatteryCurrentVoltage < BatteryMinVoltage )
+    float BatOffsetFloat = BatteryOffset * 0.1;
+    BatteryCurrentVoltage = (((float)SampleAverage / (float)CollectedSamples * 5.0)  / 1024.0 * (float)((47.0 + 10.0) / 10.0)) + BatOffsetFloat;  // Voltage dividor - 47k and 10k
+       if( BatteryCurrentVoltage < BatteryMinVoltage )
     {
       if( BatteryCurrentVoltage > 1.6 ) // If the current voltage is 0, we are probably debugging
       {
@@ -2236,7 +2258,6 @@ void ProcessBatteryMonitor()
 }
 
 //----------------------------------- DIPSPLAY Config Screeen and write values to EEPROM ---------------
-
 void Display_Config( bool ClearScreen )
 {
   static byte CurrentMenuItem = 0;
@@ -2289,7 +2310,7 @@ void Display_Config( bool ClearScreen )
     else
       Cursor = '>';
 
-    Oled.setCursor(adj+0, 2);
+    Oled.setCursor(0, 2);
     DisplayList[0]->PrepareOutput();
     if( CursorItem == 0 )
       Oled.print( Cursor );
@@ -2300,7 +2321,7 @@ void Display_Config( bool ClearScreen )
     Oled.print( DisplayList[0]->Output );
     Oled.clearToEOL();
 
-    Oled.setCursor(adj+0, 4);
+    Oled.setCursor(0, 4);
     DisplayList[1]->PrepareOutput();
     if( CursorItem == 1 )
       Oled.print( Cursor );
@@ -2311,7 +2332,7 @@ void Display_Config( bool ClearScreen )
     Oled.print( DisplayList[1]->Output );
     Oled.clearToEOL();
 
-    Oled.setCursor(adj+0, 6);
+    Oled.setCursor(0, 6);
     DisplayList[2]->PrepareOutput();
     if( CursorItem == 2 )
       Oled.print( Cursor );
@@ -2366,7 +2387,7 @@ void Display_Config( bool ClearScreen )
         ExitingConfig = true;
         EnteringConfig = false;
         break;
-        case 13:                                   //exit request at end of menu options
+        case 15:                                   //exit request at end of menu options
         SystemMode == SYSTEM_MODE_NORMAL;
         ExitingConfig = true;
         EnteringConfig = false;
@@ -2440,6 +2461,21 @@ void Display_Config( bool ClearScreen )
               Profiles[CurrentProfile].PulseRetractTime = PulseRetractTime;
               EEPROM.write( (CurrentProfile * ADDR_PROB_BASE) + ADDR_PULSE_RETRACT, PulseRetractTime );
               break; 
+            case 13:
+              BatteyType = MenuItems[13]->CurrentValue;
+              UpdateBatteryType();
+              Profiles[CurrentProfile].BatteyType = BatteyType;
+              EEPROM.write( (CurrentProfile * ADDR_PROB_BASE) + ADDR_BAT_TYPE, BatteyType );
+              break; 
+            case 14:
+              BatteryOffset = MenuItems[14]->CurrentValue;
+              Profiles[CurrentProfile].BatteryOffset = BatteryOffset;
+              EEPROM.write( (CurrentProfile * ADDR_PROB_BASE) + ADDR_BAT_OFFSET, BatteryOffset );
+              break; 
+
+ 
+
+
 /*                      
  * Referance code
             case 10:
@@ -2489,6 +2525,32 @@ void Display_Config( bool ClearScreen )
     EnteringConfig = false;
 }
 
+// --------------------------------------------------------If battery Type is changed these constantes need to change-------------------
+void UpdateBatteryType()
+{
+  
+  if( BatteyType == BATTERY_3S)
+  {
+    BatteryMinVoltage = BATTERY_3S_MIN;
+    BatteryMaxVoltage = BATTERY_3S_MAX;
+    SolenoidLowVoltage = (int)(BATTERY_3S_MIN*10.0);
+    SolenoidHighVoltage = (int)(BATTERY_3S_MAX*10.0);
+  }
+  if (BatteyType == BATTERY_4S)
+  {
+    BatteryMinVoltage = BATTERY_4S_MIN;
+    BatteryMaxVoltage = BATTERY_4S_MAX;
+    SolenoidLowVoltage = (int)(BATTERY_4S_MIN*10.0);
+    SolenoidHighVoltage = (int)(BATTERY_4S_MAX*10.0);
+  }
+//  Serial.println ( BatteyType ); 
+//  Serial.println ( BatteryMinVoltage ); 
+//  Serial.println ( BatteryMaxVoltage );
+//  Serial.println ( SolenoidLowVoltage );
+//  Serial.println ( SolenoidHighVoltage );
+}
+
+// ---------------------------------------------------------------------------
 void UpdateMenuItems()
 {
   // Ignore [0]
@@ -2504,9 +2566,11 @@ void UpdateMenuItems()
   MenuItems[10]->CurrentValue = PulseOnTimeHigh;
   MenuItems[11]->CurrentValue = PulseOnTimeLow;
   MenuItems[12]->CurrentValue = PulseRetractTime;
-
-  // MenuItem [13} is EXIT
+  MenuItems[13]->CurrentValue = BatteyType;
+  MenuItems[14]->CurrentValue = BatteryOffset;
+  // MenuItem [15} is EXIT
   
+ // int num =atoi(200);
   // --- Referance code ---
   //MenuItems[10]->CurrentValue = ButtonActions[BTN_IDX_LS];
   //MenuItems[11]->CurrentValue = ButtonActions[BTN_IDX_LL];
@@ -2517,6 +2581,7 @@ void UpdateMenuItems()
   //MenuItems[16]->CurrentValue = ButtonActions[BTN_IDX_ROT];
 }
 
+//--------------------------------------------------------------- only called at start up -----------------------------------
 void UpdateProfile()
 {
   MotorSpeedFull = Profiles[CurrentProfile].MotorSpeedFull;
@@ -2530,8 +2595,11 @@ void UpdateProfile()
   MotorStopDwellTime = Profiles[CurrentProfile].MotorStopDwellTime;
   PulseOnTimeHigh = Profiles[CurrentProfile].PulseOnTimeHigh;
   PulseOnTimeLow = Profiles[CurrentProfile].PulseOnTimeLow;
-  PulseRetractTime = Profiles[CurrentProfile].PulseRetractTime; 
-
+  PulseRetractTime = Profiles[CurrentProfile].PulseRetractTime;
+  BatteyType = Profiles[CurrentProfile].BatteyType;
+  BatteryOffset = Profiles[CurrentProfile].BatteryOffset; 
+  
+  
   // --- Referance code ---
   //ButtonActions[BTN_IDX_LS] = Profiles[CurrentProfile].BtnLS;
   //ButtonActions[BTN_IDX_LL] = Profiles[CurrentProfile].BtnLL;
@@ -2542,4 +2610,5 @@ void UpdateProfile()
   //ButtonActions[BTN_IDX_ROT] = Profiles[CurrentProfile].BtnRot;
   
   CalculateRampRates();     // Recalculate the ramp rates
+  UpdateBatteryType();
 }
