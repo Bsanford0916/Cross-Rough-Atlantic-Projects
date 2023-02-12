@@ -19,5 +19,7 @@ We hope you'll enjoy it and please consider donating a dollar or two towards the
 
 Kind regards from Ben, Thor and the rest of the C.R.A.P team. 
 
+Hi to Kiwi
+
 Shameless donation link:
 https://www.buymeacoffee.com/projectmjolnir
