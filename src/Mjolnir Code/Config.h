@@ -1,3 +1,6 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
 // Configuration menu stuff
 #define MENU_ITEMS 16  // was 14
 MenuItem* MenuItems[MENU_ITEMS];
@@ -66,3 +69,6 @@ void BuildMenu() {
   strcpy(MenuItems[15]->Title, "EXIT");
 }
 
+
+
+#endif

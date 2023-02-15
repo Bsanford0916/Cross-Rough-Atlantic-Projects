@@ -210,6 +210,7 @@
 #include "Motor.h"
 #include "Battery.h"
 #include "Config.h"
+#include "Oled.h"
 
 
 //-------------------------------------------------------------------------------------------------------------------------
@@ -401,45 +402,8 @@ void setup() {
 
   unsigned long BootStart = millis();
 
-  // Boot LCD
-  Serial.println(F("Initialising Display"));
-  Wire.begin();
-  Wire.setClock(400000L);                    // 400khz
-  Oled.begin(&Adafruit128x64, OLED_ADDR);    // 0.96 Inch display
-  Serial.println(F("Display Initialised"));  //
-
-  // Give a nice message
-  Oled.clear();
-  Oled.displayRemap(false);  // set true or false to flip screen
-  Oled.setFont(ZevvPeep8x16);
-  Oled.setCursor(oled_adj + 40, 2);
-  Oled.print(F("BOO"));
-  Oled.setCursor(oled_adj + 35, 4);
-  Oled.print(F("Booting"));
-
-  // Display logo                                       // The pic lives in Logo.h.
-  Oled.clear();
-  for (byte Row = 0; Row < 8; Row++) {
-    Wire.beginTransmission(OLED_ADDR);  // Set the memory page
-    Wire.write(0x00);
-    Wire.write(0xB0 | Row & 7);
-    Wire.endTransmission();
-    Wire.beginTransmission(OLED_ADDR);  // Dump data 16 bytes per i2c packet
-    Wire.write(0x40);
-    int Seg = 0;
-    for (byte Col = 0; Col < oled_cols; Col++) {
-      Seg++;
-      if (Seg == 16) {
-        Wire.endTransmission();
-        Wire.beginTransmission(OLED_ADDR);
-        Wire.write(0x40);
-        Seg = 0;
-      }
-      Wire.write(~(pgm_read_byte_near(Logo + Row * 128 + Col)));
-    }
-    Wire.endTransmission();
-  }
-
+  InitDisplay();
+  DisplayLogo();
   //--------------------- Config Interupt Vectors  ----------------------------------
   // PCINT Inputs
   // PB - PCINT Vector 0 ----PORT B --Encoder PB Switch & Mag Sensor
@@ -1435,70 +1399,6 @@ void ProcessPusherControl() {
 }
 // ------------------------------------ End ProcessPusherControl  ------------------------------
 
-
-//----------------------------- Process Motor Speed Subroutine -------------------------------------------
-// Calculate the desired motor speed based on where we are, and where we need to be. This takes into account the ramp rates of the motor.
-void ProcessMotorSpeed() {
-  // Don't do anything if the motor is already running at the desired speed.
-  if (CurrentMotorSpeed == TargetMotorSpeed) {
-    return;
-  }
-
-  unsigned long CurrentTime = millis();  // Need a base time to calcualte from
-  unsigned long MSElapsed = CurrentTime - TimeLastMotorSpeedChanged;
-  if (MSElapsed == 0)  // No meaningful time has elapsed, so speed will not change
-  {
-    return;
-  }
-  if (CurrentMotorSpeed < TargetMotorSpeed) {
-    long SpeedDelta = (MSElapsed * MotorRampUpPerMS / 1000);
-    if (SpeedDelta < 1) return;                          // Not enough cycles have passed to make an appreciable difference to speed.
-    int NewMotorSpeed = CurrentMotorSpeed + SpeedDelta;  // Calclate the new motor speed..
-
-    // If it's within 1% (which is 10) of target, then just set it
-    if (NewMotorSpeed + 10 >= TargetMotorSpeed) {
-      NewMotorSpeed = TargetMotorSpeed;
-    }
-
-    TimeLastMotorSpeedChanged = CurrentTime;
-    CurrentMotorSpeed = NewMotorSpeed;
-  }
-  if (CurrentMotorSpeed > TargetMotorSpeed) {
-    long SpeedDelta = (MSElapsed * MotorRampDownPerMS / 1000);
-    if (SpeedDelta < 1) return;                          // Not enough cycles have passed to make an appreciable difference to speed.
-    int NewMotorSpeed = CurrentMotorSpeed - SpeedDelta;  // Calclate the new motor speed..
-
-    // If it's within 1% (which is 10) of target, then just set it
-    if (NewMotorSpeed - 10 <= TargetMotorSpeed) {
-      NewMotorSpeed = TargetMotorSpeed;
-    }
-
-    TimeLastMotorSpeedChanged = CurrentTime;
-    CurrentMotorSpeed = NewMotorSpeed;
-  }
-}
-
-
-//------------------------------------------ PROCESS SPEED CONTROL -----------------------------------------------
-// We need to set the Target Motor Speed here, as a percentage. Sense check it to ensure it's not too slow, or too fast.
-void ProcessSpeedControl() {
-  static byte LastSetMaxSpeed = 100;
-
-  if (CommandRev == COMMAND_REV_FULL) SetMaxSpeed = MotorSpeedFull;
-  if (CommandRev == COMMAND_REV_NONE) SetMaxSpeed = 0;
-
-  if (LastSetMaxSpeed == SetMaxSpeed) return;  // Speed hasn't changed
-
-  if (CommandRev > COMMAND_REV_NONE) {
-    SetMaxSpeed = constrain(SetMaxSpeed, 30, 100);  // Constrain between 30% and 100%
-  }
-
-  TargetMotorSpeed = map(SetMaxSpeed, 0, 100, MinMotorSpeed, MaxMotorSpeed);  // Find out our new target speed.
-
-  LastSetMaxSpeed = SetMaxSpeed;
-}
-
-
 //-------------------------------- PROCESS MAIN MOTORS ------------------
 // Update the motors with the new speed
 void ProcessMainMotors() {
@@ -1728,71 +1628,7 @@ void Display_Jam(bool ClearScreen) {
 }
 
 
-//------------------------------------ Keep tabs on the battery ----------------------------------------
-void ProcessBatteryMonitor() {
-
-#define BM_STATUS_IDLE 0
-#define BM_STATUS_READING 1
-#define BM_STATUS_READY 2
-
-  static byte CurrentStatus = 0;
-  static unsigned long LastCheck = 0;
-
-  // Every 500ms, start a background ADC read
-  if (CurrentStatus == BM_STATUS_IDLE) {
-    if (millis() - LastCheck < 500) {
-      return;
-    }
-
-    LastCheck = millis();
-    CurrentStatus = BM_STATUS_READING;
-    ADCSRA |= (1 << ADSC);  // Run the ADC
-    return;
-  }
-
-  // When the ADC has finished it's conversion, proceed to the processing step
-  if (CurrentStatus == BM_STATUS_READING) {
-    if (!ADCRead) {
-      return;  // Nothing to see here
-    }
-    ADCRead = false;
-    CurrentStatus = BM_STATUS_READY;
-  }
-
-
-  if (CurrentStatus != BM_STATUS_READY)
-    return;
-
-#define NUM_SAMPLES 6
-  static byte CollectedSamples = 0;
-  static float SampleAverage = 0;
-  int BatteryOffsetfloat = 0;
-
-  if (CollectedSamples < NUM_SAMPLES) {
-    CollectedSamples++;
-    SampleAverage += (float)ADCValue;
-  } else {
-    float BatOffsetFloat = BatteryOffset * 0.1;
-    BatteryCurrentVoltage = (((float)SampleAverage / (float)CollectedSamples * 5.0) / 1024.0 * (float)((47.0 + 10.0) / 10.0)) + BatOffsetFloat;  // Voltage dividor - 47k and 10k
-    if (BatteryCurrentVoltage < BatteryMinVoltage) {
-      if (BatteryCurrentVoltage > 1.6)  // If the current voltage is 0, we are probably debugging
-      {
-        BatteryFlat = true;
-      } else {
-        BatteryFlat = false;
-      }
-    } else {
-      BatteryFlat = false;
-    }
-    CollectedSamples = 0;
-    SampleAverage = 0;
-  }
-
-  // Reset back to the default position.
-  LastCheck = millis();
-  CurrentStatus = BM_STATUS_IDLE;
-}
-
+//
 //----------------------------------- DIPSPLAY Config Screeen and write values to EEPROM ---------------
 void Display_Config(bool ClearScreen) {
   static byte CurrentMenuItem = 0;

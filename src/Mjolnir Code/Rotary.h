@@ -1,3 +1,6 @@
+#ifndef ROTARY_H
+#define ROTARY_H
+
 #include "Settings.h"
 // Pin macros
 /*
@@ -66,4 +69,4 @@ ISR(INT1_vect)  //Rotary Encoder DT D2 INT1 (Hardware Interupt)
 }
 
 
-
+#endif

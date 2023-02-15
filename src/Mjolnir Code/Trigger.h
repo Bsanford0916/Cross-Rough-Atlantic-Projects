@@ -1,3 +1,6 @@
+#ifndef TRIGGER_H
+#define TRIGGER_H
+
 #include "Settings.h"
 
 // Pin macros
@@ -27,3 +30,5 @@ ISR(PCINT1_vect)  // Trigger - PORT C PCINT - PC2
 
   LastPINC = PINC;
 }
+
+#endif
