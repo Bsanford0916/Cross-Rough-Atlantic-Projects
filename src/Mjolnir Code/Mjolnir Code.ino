@@ -497,6 +497,7 @@ ProfileDef Profiles[2];
 #define ADDR_PROB_BASE 31       // 31
 #define ADDR_SECTORL 29         // 30
 
+int oled_adj =2;
 //============================================= SETUP ======================================= 
 void setup() {
   Serial.begin( 57600 );                                // Used for Debugging
@@ -517,9 +518,9 @@ void setup() {
   Oled.clear();
   Oled.displayRemap( false );                           // set true or false to flip screen
   Oled.setFont(ZevvPeep8x16);
-  Oled.setCursor(40, 2);
+  Oled.setCursor(oled_adj + 40, 2);
   Oled.print( F("BOO") );
-  Oled.setCursor(35, 4);
+  Oled.setCursor(oled_adj + 35, 4);
   Oled.print( F("Booting") );
 
   // Display logo                                       // The pic lives in Logo.h. 
@@ -533,10 +534,10 @@ void setup() {
     Wire.beginTransmission( OLED_ADDR );                // Dump data 16 bytes per i2c packet
     Wire.write( 0x40 );
     int Seg = 0;     
-    for( byte Col = 0; Col < 128; Col++ )
+    for( byte Col = 0; Col < 132; Col++ )
     {
       Seg++;
-      if( Seg == 16 )
+      if( Seg == 30 )
       {
         Wire.endTransmission();
         Wire.beginTransmission( OLED_ADDR );
@@ -646,11 +647,11 @@ void setup() {
   Serial.println( F("Waiting for trigger safety") );
   Oled.clear();
   Oled.setFont(ZevvPeep8x16);
-  Oled.setCursor(40, 2);
+  Oled.setCursor(oled_adj + 40, 2);
   Oled.print( F("Finger") );
-  Oled.setCursor(35, 4);
+  Oled.setCursor(oled_adj + 35, 4);
   Oled.print( F("Off The") );      
-  Oled.setCursor(35, 6);
+  Oled.setCursor(oled_adj + 35, 6);
   Oled.print( F("Trigger!") );
   while( (TriggerButtonState == BTN_LOW) || (TriggerButtonState == BTN_FELL) )
   {
@@ -665,7 +666,7 @@ void setup() {
   // We are done.
   Oled.clear();
   Oled.setFont(ZevvPeep8x16);
-  Oled.setCursor(40, 2);
+  Oled.setCursor(oled_adj+ 40, 2);
   Oled.print( F("Booted") );
   
   Serial.println( F("Booted") );  
@@ -2012,7 +2013,7 @@ void Display_MagOut( bool ClearScreen )
   if( ClearScreen )
   {  
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(0, 2);
+    Oled.setCursor(oled_adj + 0, 2);
     Oled.print( F("################\n") );
     Oled.print( F("# MAG DROPPED! #\n") );
     Oled.print( F("################") );      
@@ -2033,7 +2034,7 @@ void Display_Normal( bool ClearScreen )
   if( ClearScreen || (TargetFireMode != LastTargetFireMode) || (BurstSize != LastBurstSize) )
   {  
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(0, 2);
+    Oled.setCursor(oled_adj +0, 2);
     if( TargetFireMode == FIRE_MODE_SINGLE )
     {
       Oled.print( F("Single    ") );
@@ -2070,7 +2071,7 @@ void Display_Normal( bool ClearScreen )
   if( ClearScreen || (DisplayDPS != LastDisplayDPS) )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(0, 4);
+    Oled.setCursor(oled_adj + 0, 4);
     Oled.print( F("ROF: ") );
     if( DisplayDPS == 0 )
       Oled.print( F("MAX") );
@@ -2084,7 +2085,7 @@ void Display_Normal( bool ClearScreen )
   if( ClearScreen || (MotorSpeedFull != LastMotorSpeedFull) )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(0, 6);
+    Oled.setCursor(oled_adj+0, 6);
     Oled.print( F("Pwr:") );
     sprintf( Buffer, "%3d", MotorSpeedFull );
     Oled.print( Buffer );
@@ -2098,7 +2099,7 @@ void Display_Normal( bool ClearScreen )
     {
       LastRefresh = millis();
       Oled.setFont(ZevvPeep8x16);
-      Oled.setCursor(90, 3);
+      Oled.setCursor(oled_adj+90, 3);
       Oled.set2X();
       sprintf( Buffer, "%2d", DartsInMag );
       Oled.print( Buffer );
@@ -2130,7 +2131,7 @@ void Display_ScreenHeader( bool ClearScreen )
   if( ClearScreen || ( (int)(LastBatteryVoltage*10) != (int)(BatteryCurrentVoltage*10) ) )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(0, 0);
+    Oled.setCursor(oled_adj+0, 0);
     sprintf( Buffer, "%3d", (int)(BatteryCurrentVoltage * 10) );
     Buffer[4] = 0;
     Buffer[3] = Buffer[2];
@@ -2141,7 +2142,7 @@ void Display_ScreenHeader( bool ClearScreen )
 
   if( ClearScreen || (LastCurrentProfile != CurrentProfile ) )
   {
-    Oled.setCursor( 70, 0 );
+    Oled.setCursor(oled_adj+ 70, 0 );
     Oled.setFont(ZevvPeep8x16);
     Oled.print( "Pro: " );
     Oled.print( (char)('A' + CurrentProfile) );      
@@ -2158,7 +2159,7 @@ void Display_LowBatt( bool ClearScreen )
   if( ClearScreen )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(0, 2);
+    Oled.setCursor(oled_adj+0, 2);
     Oled.print( F("################\n") );
     Oled.print( F("# LOW BATTERY! #\n") );
     Oled.print( F("################") ); 
@@ -2171,7 +2172,7 @@ void Display_Jam( bool ClearScreen )
   if( ClearScreen )
   {
     Oled.setFont(ZevvPeep8x16);
-    Oled.setCursor(0, 2);
+    Oled.setCursor(oled_adj+0, 2);
     Oled.print( F("################\n") );
     Oled.print( F("# JAM DETECTED #\n") );
     Oled.print( F("################") ); 
@@ -2310,7 +2311,7 @@ void Display_Config( bool ClearScreen )
     else
       Cursor = '>';
 
-    Oled.setCursor(0, 2);
+    Oled.setCursor(oled_adj+0, 2);
     DisplayList[0]->PrepareOutput();
     if( CursorItem == 0 )
       Oled.print( Cursor );
@@ -2321,7 +2322,7 @@ void Display_Config( bool ClearScreen )
     Oled.print( DisplayList[0]->Output );
     Oled.clearToEOL();
 
-    Oled.setCursor(0, 4);
+    Oled.setCursor(oled_adj+0, 4);
     DisplayList[1]->PrepareOutput();
     if( CursorItem == 1 )
       Oled.print( Cursor );
@@ -2332,7 +2333,7 @@ void Display_Config( bool ClearScreen )
     Oled.print( DisplayList[1]->Output );
     Oled.clearToEOL();
 
-    Oled.setCursor(0, 6);
+    Oled.setCursor(oled_adj+0, 6);
     DisplayList[2]->PrepareOutput();
     if( CursorItem == 2 )
       Oled.print( Cursor );
